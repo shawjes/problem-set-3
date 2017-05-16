@@ -1,0 +1,144 @@
+---
+title: "PS3_submission"
+author: "Jessica Shaw"
+date: "March 26, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, comment = "#>")
+library(tidyverse)
+```
+
+```{r}
+# bgh data
+bgh_url <- 'http://www.ncbi.nlm.nih.gov/geo/download/?acc=GSE43163&format=file&file=GSE43163_CompleteCountTable_Bgh.txt.gz'
+# 2 info and blank lines at top, skip them
+raw_data <- read_tsv(bgh_url, skip = 2)
+# the header for the first column is "NA", set it manually
+names(raw_data)[1] <- 'gene.name'
+raw_data <- as_data_frame(raw_data)
+raw_data01<-gather(raw_data, plant_fungus_time.point_rep_value, value=value, 2:49)
+head(raw_data01)
+attach(raw_data01)
+cleaned_data<-separate(raw_data01, "plant_fungus_time.point_rep_value",
+                       into = c("plant","fungus","time.point","rep"), sep = "_")
+# report the cleaned_data by just naming it, uncomment the following line:
+cleaned_data
+attach(cleaned_data)
+```
+
+Problem 2:
+Which plant has the highest expression of any gene in the 6hpi time point?
+```{r}
+filter(cleaned_data,time.point=="6hpi")%>%top_n(1,value) %>% select(plant)
+```
+
+Which plant / fungus pair has the highest expression in the 18hpi time point?
+```{r}
+filter(cleaned_data,time.point=="18hpi") %>% top_n(1,value) %>% select(plant,fungus)
+```
+
+
+Problem 3:
+```{r}
+library(tidyr)
+#install.packages("stringr")
+library(stringr)
+#install.packages("dplyr")
+library(dplyr)
+cleaned_data01<-cleaned_data %>% mutate(time.value = str_replace(time.point, 'hpi', ''),
+         time.hpi = str_c('hpi.', time.value))
+attach(cleaned_data01)
+```
+
+Problem 3:
+Identify the top 3 most consistently differentially expressed genes between the earliest and latest
+time points for each combination of plant and fungus strains.
+"Differential expression"" is the difference between value (i.e., gene expression level) between time points.
+"Consistency" is the smallest variance in value between replicates.
+
+Strategy:
+Create a new table from the cleaned data by moving each hpi value to a new column name, with counts for each
+in the column (hint: use a tidyr verb).
+It is helpful to reformat the hpi values by converting from e.g. 6hpi to hpi.6.
+You can use mutate to do this, i.e.:
+Create a new column containing the expression difference between the relevant time points.
+Calculate summary statistics (mean and variance) of the expression differences by grouping (hint) the gene.name, plant, and virus columns.
+Sort by these statistics and use the dplyr verb slice to pull the ones you want (i.e., the top 3). Note you will have to remove gene.name from the grouping so that sorting works.
+
+```{r a3, echo=TRUE}
+relative_consistency<-cleaned_data01%>%
+  mutate(time.value = str_replace(time.point, 'hpi', ''), time.hpi = str_c('hpi.', time.value))%>%
+  select(-time.point, -time.value)%>%
+  # why does the spread function not work if I don't remove time.point and time.value?
+  spread(time.hpi, value)%>%
+  mutate(expr.diff = hpi.24 - hpi.6)%>%
+  mutate(abs.expr.diff = abs(hpi.24 - hpi.6))%>%
+  group_by(gene.name,plant,fungus)%>%
+  summarise(mean.abs.diff=mean(abs.expr.diff),var.signed.diff=(0.00001+var(expr.diff,na.rm=TRUE)))%>%
+  ungroup()%>%
+  mutate(grp=paste(plant,fungus,sep="-")) %>%
+  mutate(grp_gene=paste(gene.name,plant,fungus,sep="-")) %>%
+  mutate(relative_consistency=var.signed.diff/mean.abs.diff) %>%
+  group_by(grp)%>%
+  mutate(unique=n_distinct(grp_gene,na.rm=TRUE)) %>%
+  arrange(relative_consistency)%>%
+  slice(1:3)
+
+relative_consistency
+```
+```{r}
+TEST
+```
+
+````{r a4}
+Problem 4:
+```
+The above data frame identifies the top three most consistently differentially expressed genes between the earliest
+and latest time points for each of combination of plant and fungus strains. Stratifying simultaneously by both plant and fungus produces `{r} group_by(cleaned_data01,plant,fungus)` groups. Each group contains a different number of genes. Examining all genes found within each grouping of plant and fungus results in a data frame with `r group_by(cleaned_data01,gene.name,plant,fungus)` rows. Meanwhile, there are only `r length(unique(cleaned_data01,gene.name))` unique genes, which indicates that our plant x fungus groups share overlapping genes.
+
+#This code keeps producing errors...
+```
+
+Problem 5:
+Plot the expression (value) by time (hpi) for the above genes. Format the plot as follows:
+Plot each point.
+Connect the points with a smooth line
+Create a facet for each plant / bgh pair
+Assign a different color to each gene
+Assign a different shape to each replicate
+Add a descriptive title to the plot
+Use the "black & white" theme
+Extra credit: add error bars to the plot (use geom_errorbar).
+
+```{r problem_4, warning=FALSE}
+library(ggplot2)
+help(left_join)
+
+plot_clean<-cleaned_data01 %>%
+  mutate(time.value = str_replace(time.point, 'hpi', ''), time.hpi = str_c('hpi.', time.value)) %>%
+  select(gene.name, plant, fungus, value, time.value,rep)
+plot_rel_cons<-select(relative_consistency,gene.name,plant,fungus)
+plot.data<-plot_rel_cons %>%
+  ungroup() %>%
+  #return all rows from x, and all cols from x and y
+  left_join(., plot_clean) %>%
+  mutate(time.value = as.integer(time.value))
+
+library(ggplot2)
+Q5plot<-qplot(time.value, mean.value, data=df, color=gene.name, #shape=rep,
+      facets=plant~fungus, size=I(3),
+      xlab="Time", ylab="Mean expression")+
+      #main="Top consistently differentialy expressed genes within plant and fungus")+
+      labs(title="Top consistently differentialy expressed genes within plant and fungus",
+           subtitle="Mean expression values over time")+
+      geom_smooth() +
+      theme_bw() +
+      theme(legend.key = element_blank())
+```
+
+```{r A5, echo=FALSE}
+Q5plot
+```
